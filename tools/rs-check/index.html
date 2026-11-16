@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ローリングシャッター・オシロ 検証ツール</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #1d232b; --sub: #5d6773; --line: #d9dee5;
+    --accent: #1f6feb; --accent-ink: #fff; --warn: #a35a00; --warn-bg: #fff4e0; --ok: #1a7f37;
+    --wave: #1f6feb; --raw: #b4bcc6; --mark: #d1242f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+  header h1 { font-size: 17px; margin: 0; }
+  header span { color: var(--sub); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; padding: 14px; align-items: start; }
+  @media (max-width: 900px) {
+    .layout { display: flex; flex-direction: column; }
+    .left { display: contents; }
+    #stage { order: 1; } #videoBar { order: 2; } .right { order: 3; } .plots-sec { order: 4; }
+  }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .left { display: grid; gap: 14px; min-width: 0; }
+  #stage { position: relative; display: flex; justify-content: center; align-items: center; min-height: 220px; background: #20242a; border-radius: 10px; overflow: hidden; }
+  #stageInner { position: relative; line-height: 0; }
+  #img, #cam { display: block; max-width: 100%; max-height: 72vh; width: auto; height: auto; }
+  #ov { position: absolute; left: 0; top: 0; touch-action: none; cursor: crosshair; }
+  #placeholder { color: #c9d1d9; padding: 40px 16px; text-align: center; line-height: 1.6; }
+  .hidden { display: none !important; }
+  .right { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+  details.card > summary { cursor: pointer; font-weight: 600; list-style: none; }
+  details.card > summary::before { content: "▸ "; color: var(--sub); }
+  details.card[open] > summary::before { content: "▾ "; }
+  details.card[open] > summary { margin-bottom: 8px; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  h3 { font-size: 13px; margin: 6px 0 2px; color: var(--sub); font-weight: 600; }
+  button, .btn { font: inherit; min-height: 42px; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+  button.primary, .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+  label.inline { display: inline-flex; gap: 6px; align-items: center; }
+  input[type=number], input[type=text], select { font: inherit; min-height: 38px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  input[type=number] { width: 7.5em; }
+  input[type=range] { width: 100%; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg label { padding: 8px 12px; cursor: pointer; border-right: 1px solid var(--line); min-height: 40px; display: flex; align-items: center; }
+  .seg label:last-child { border-right: 0; }
+  .seg input { display: none; }
+  .seg input:checked + span { font-weight: 700; color: var(--accent); }
+  .seg label:has(input:checked) { background: #eaf2ff; }
+  table.kv { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.kv th { text-align: left; font-weight: 500; color: var(--sub); padding: 3px 6px 3px 0; white-space: nowrap; vertical-align: top; }
+  table.kv td { padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .big { font-size: 20px; font-weight: 700; }
+  .warn { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 6px 8px; margin: 6px 0 0; font-size: 13px; }
+  .note { color: var(--sub); font-size: 13px; }
+  .plots canvas { width: 100%; height: 170px; display: block; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+  .tablewrap { overflow-x: auto; }
+  table.rec { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+  table.rec th, table.rec td { border: 1px solid var(--line); padding: 3px 6px; }
+  table.rec th { background: #f0f2f5; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; background: #f6f8fa; padding: 8px; border-radius: 6px; max-height: 260px; overflow: auto; }
+  .stat { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ローリングシャッター・オシロ 検証ツール</h1>
+  <span>v0.1　実機検証（RS-Q-01・03・09・11・12）用。授業用の画面ではない。映像は外部へ送信しない。</span>
+</header>
+
+<main class="layout">
+  <section class="left">
+    <div id="stage">
+      <div id="placeholder">写真・動画を開くか、カメラを起動する。<br>画像の上をドラッグして、解析する帯を指定する。</div>
+      <div id="stageInner" class="hidden">
+        <canvas id="img"></canvas>
+        <video id="cam" class="hidden" playsinline muted></video>
+        <canvas id="ov"></canvas>
+      </div>
+    </div>
+
+    <div id="videoBar" class="card hidden">
+      <div class="row">
+        <button id="vPrev" title="1コマ戻る">◀</button>
+        <input id="vSeek" type="range" min="0" max="1" step="0.001" value="0" style="flex:1">
+        <button id="vNext" title="1コマ進む">▶</button>
+      </div>
+      <div class="row note">
+        <span id="vTime">0.000 s</span>
+        <label class="inline">コマ送りの fps <input id="vFps" type="number" value="30" min="1" max="960" step="any"></label>
+      </div>
+      <div class="row">
+        <label class="inline">連続 <input id="vN" type="number" value="10" min="2" max="300" step="1"> コマ</label>
+        <button id="vMulti">連続して解析</button>
+        <span id="vMultiOut" class="stat note"></span>
+      </div>
+    </div>
+
+
+    <div class="card plots plots-sec">
+      <h3 id="waveTitle">波形（読み出し方向に沿った明るさ。トレンド除去後）</h3>
+      <canvas id="plotWave"></canvas>
+      <h3>自己相関</h3>
+      <canvas id="plotAcf"></canvas>
+      <h3 id="specTitle">スペクトル</h3>
+      <canvas id="plotSpec"></canvas>
+    </div>
+  </section>
+
+  <aside class="right">
+    <details class="card" open>
+      <summary>入力</summary>
+      <div class="row">
+        <label class="btn primary">写真・動画を開く<input id="file" type="file" accept="image/*,video/*" class="hidden"></label>
+        <button id="camStart">カメラを起動</button>
+        <button id="camStop" class="hidden">カメラを止める</button>
+      </div>
+      <div id="camBox" class="hidden">
+        <div class="row">
+          <select id="camSel" style="max-width:100%"></select>
+        </div>
+        <div class="row">
+          <label class="inline">解像度
+            <select id="camRes">
+              <option value="1280x720">1280×720</option>
+              <option value="1920x1080" selected>1920×1080</option>
+              <option value="3840x2160">3840×2160</option>
+            </select></label>
+          <label class="inline">fps
+            <select id="camFps"><option>30</option><option>60</option></select></label>
+          <button id="camApply">適用</button>
+        </div>
+        <div id="camSummary" class="note"></div>
+        <div id="expBox" class="hidden">
+          <h3>露光時間（手動）</h3>
+          <input id="expSlider" type="range" min="0" max="1000" value="500">
+          <div class="row note"><span id="expOut"></span><button id="expAuto">自動に戻す</button></div>
+          <div id="isoBox" class="hidden">
+            <h3>感度（ISO）</h3>
+            <input id="isoSlider" type="range">
+            <div class="note" id="isoOut"></div>
+          </div>
+        </div>
+        <div class="row">
+          <button id="camFreeze" class="primary">このコマで解析</button>
+          <button id="camLive" class="hidden">ライブに戻る</button>
+          <label class="inline"><input id="camCont" type="checkbox"> 連続解析</label>
+        </div>
+        <div id="liveStats" class="note stat"></div>
+      </div>
+      <div class="row note">
+        <span>合成サンプル：</span>
+        <button id="sampFlicker">点滅（周期 23.7 行）</button>
+        <button id="sampVib">振動（周期 81.3 行）</button>
+      </div>
+      <div id="srcInfo" class="note"></div>
+    </details>
+
+    <details class="card" open>
+      <summary>解析の設定</summary>
+      <div class="row">
+        <span class="seg">
+          <label><input type="radio" name="mode" value="flicker" checked><span>点滅</span></label>
+          <label><input type="radio" name="mode" value="vib"><span>振動</span></label>
+        </span>
+      </div>
+      <div class="row">
+        <span class="note">読み出し方向</span>
+        <span class="seg">
+          <label><input type="radio" name="axis" value="auto" checked><span>自動</span></label>
+          <label><input type="radio" name="axis" value="v"><span>縦</span></label>
+          <label><input type="radio" name="axis" value="h"><span>横</span></label>
+        </span>
+      </div>
+      <div class="row">
+        <button id="bandFull">帯を全体に</button>
+        <button id="bandCenter">帯を中央に</button>
+      </div>
+      <div id="bandInfo" class="note"></div>
+      <p class="note" id="modeNote">点滅モード：一様な面に写った縞を、帯の中で読み出し方向と直交する向きに平均する。</p>
+    </details>
+
+    <section class="card">
+      <h2>結果</h2>
+      <div id="results" class="note">まだ解析していない。</div>
+      <div id="warnings"></div>
+    </section>
+
+    <details class="card" open>
+      <summary>校正</summary>
+      <div class="row">
+        <label class="inline">t<sub>row</sub> <input id="trow" type="number" step="any" min="0" placeholder="未設定"> µs/行</label>
+      </div>
+      <div class="row">
+        <label class="inline">基準の周波数 <input id="fref" type="number" step="any" min="0" placeholder="例 1000"> Hz</label>
+        <button id="calibDo">いまの周期から t<sub>row</sub> を求める</button>
+      </div>
+      <div class="row">
+        <label class="inline">確かめの周波数 <input id="fchk" type="number" step="any" min="0" placeholder="任意"> Hz</label>
+      </div>
+      <div class="row">
+        <input id="calibLabel" type="text" placeholder="名前（機種・カメラ・解像度・fps）" style="flex:1">
+        <button id="calibSave">保存</button>
+      </div>
+      <div class="row">
+        <select id="calibList" style="flex:1"></select>
+        <button id="calibLoad">使う</button>
+        <button id="calibDel">削除</button>
+      </div>
+      <p class="note">t<sub>row</sub> = 1 / (f<sub>ref</sub> × p)。カメラ・解像度・fps・写真か動画か、の組ごとに求める。</p>
+    </details>
+
+    <details class="card" open>
+      <summary>記録</summary>
+      <div class="row">
+        <input id="memo" type="text" placeholder="メモ（機種、照明、撮り方など）" style="flex:1">
+        <button id="recAdd" class="primary">記録に追加</button>
+      </div>
+      <div class="tablewrap"><table class="rec" id="recTable"></table></div>
+      <div class="row">
+        <button id="recCsv">記録を CSV で保存</button>
+        <button id="waveCsv">波形を CSV で保存</button>
+        <button id="recClear">記録を消す</button>
+      </div>
+    </details>
+
+    <details class="card" id="capsCard">
+      <summary>ブラウザが報告するカメラの機能（RS-Q-12）</summary>
+      <pre id="capsOut">カメラを起動すると表示する。</pre>
+      <button id="capsCopy">コピー</button>
+    </details>
+  </aside>
+</main>
+
+<video id="vid" class="hidden" playsinline muted preload="auto"></video>
+
+<script src="core.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const C = window.RSCore;
+
+const S = {
+  kind: null,          // 'image' | 'video' | 'camera'
+  name: '',
+  W: 0, H: 0,          // 解析に使う画素の大きさ
+  band: null,          // {x, y, w, h}（画素）
+  mode: 'flicker',
+  axisSel: 'auto',
+  last: null,
+  stream: null, track: null, frozen: false,
+  liveTimer: null, liveHist: [],
+  records: [],
+  busy: false,
+};
+
+const imgCv = $('img'), imgCtx = imgCv.getContext('2d', { willReadFrequently: true });
+const ov = $('ov'), ovCtx = ov.getContext('2d');
+const cam = $('cam'), vid = $('vid');
+
+// ---------- 表示の切り替え ----------
+function showStage(which) {
+  $('placeholder').classList.toggle('hidden', !!which);
+  $('stageInner').classList.toggle('hidden', !which);
+  imgCv.classList.toggle('hidden', which !== 'canvas');
+  cam.classList.toggle('hidden', which !== 'camera');
+  requestAnimationFrame(sizeOverlay);
+}
+function visibleEl() { return cam.classList.contains('hidden') ? imgCv : cam; }
+
+function sizeOverlay() {
+  const el = visibleEl();
+  const r = el.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  ov.style.width = r.width + 'px';
+  ov.style.height = r.height + 'px';
+  ov.width = Math.max(1, Math.round(r.width * dpr));
+  ov.height = Math.max(1, Math.round(r.height * dpr));
+  drawOverlay();
+}
+
+function drawOverlay() {
+  ovCtx.clearRect(0, 0, ov.width, ov.height);
+  if (!S.band || !S.W) return;
+  const sx = ov.width / S.W, sy = ov.height / S.H;
+  const b = S.band;
+  const x = b.x * sx, y = b.y * sy, w = b.w * sx, h = b.h * sy;
+  const dpr = window.devicePixelRatio || 1;
+  ovCtx.lineWidth = 2 * dpr;
+  ovCtx.strokeStyle = '#ffd33d';
+  ovCtx.fillStyle = 'rgba(255, 211, 61, 0.10)';
+  ovCtx.fillRect(x, y, w, h);
+  ovCtx.strokeRect(x, y, w, h);
+  // 読み出し方向の矢印
+  const axis = S.last ? S.last.axis : null;
+  if (axis) {
+    ovCtx.strokeStyle = ovCtx.fillStyle = '#ff6b6b';
+    const a = 10 * dpr;
+    ovCtx.beginPath();
+    if (axis === 'v') {
+      const cx = x - 10 * dpr < 0 ? x + 12 * dpr : x - 10 * dpr;
+      ovCtx.moveTo(cx, y); ovCtx.lineTo(cx, y + h); ovCtx.stroke();
+      ovCtx.beginPath(); ovCtx.moveTo(cx, y + h); ovCtx.lineTo(cx - a / 2, y + h - a); ovCtx.lineTo(cx + a / 2, y + h - a); ovCtx.fill();
+    } else {
+      const cy = y - 10 * dpr < 0 ? y + 12 * dpr : y - 10 * dpr;
+      ovCtx.moveTo(x, cy); ovCtx.lineTo(x + w, cy); ovCtx.stroke();
+      ovCtx.beginPath(); ovCtx.moveTo(x + w, cy); ovCtx.lineTo(x + w - a, cy - a / 2); ovCtx.lineTo(x + w - a, cy + a / 2); ovCtx.fill();
+    }
+  }
+}
+
+function setBand(b) {
+  const x0 = Math.max(0, Math.min(S.W - 1, Math.round(b.x)));
+  const y0 = Math.max(0, Math.min(S.H - 1, Math.round(b.y)));
+  const x1 = Math.max(x0 + 1, Math.min(S.W, Math.round(b.x + b.w)));
+  const y1 = Math.max(y0 + 1, Math.min(S.H, Math.round(b.y + b.h)));
+  S.band = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  $('bandInfo').textContent = `帯：x ${S.band.x}, y ${S.band.y}, 幅 ${S.band.w}, 高さ ${S.band.h}（画素）`;
+  drawOverlay();
+}
+function bandCenter() { setBand({ x: S.W * 0.3, y: S.H * 0.1, w: S.W * 0.4, h: S.H * 0.8 }); }
+function bandFull() { setBand({ x: 0, y: 0, w: S.W, h: S.H }); }
+
+// ---------- 帯の指定（ドラッグ） ----------
+let drag = null;
+function toImg(ev) {
+  const r = ov.getBoundingClientRect();
+  return { x: (ev.clientX - r.left) / r.width * S.W, y: (ev.clientY - r.top) / r.height * S.H };
+}
+ov.addEventListener('pointerdown', ev => {
+  if (!S.W) return;
+  ov.setPointerCapture(ev.pointerId);
+  drag = toImg(ev);
+});
+ov.addEventListener('pointermove', ev => {
+  if (!drag) return;
+  const p = toImg(ev);
+  setBand({ x: Math.min(drag.x, p.x), y: Math.min(drag.y, p.y), w: Math.abs(p.x - drag.x), h: Math.abs(p.y - drag.y) });
+});
+ov.addEventListener('pointerup', ev => {
+  if (!drag) return;
+  const p = toImg(ev);
+  const small = Math.abs(p.x - drag.x) < 8 && Math.abs(p.y - drag.y) < 8;
+  drag = null;
+  if (small) return;
+  runAnalysis();
+});
+window.addEventListener('resize', () => { sizeOverlay(); if (S.last) drawPlots(S.last); });
+
+// ---------- 入力：ファイル ----------
+$('file').addEventListener('change', async ev => {
+  const f = ev.target.files[0];
+  ev.target.value = '';
+  if (!f) return;
+  stopCamera();
+  if (f.type.startsWith('video/') || /\.(mov|mp4|m4v|webm)$/i.test(f.name)) await openVideo(f);
+  else await openImage(f);
+});
+
+async function openImage(f) {
+  let bmp;
+  try { bmp = await createImageBitmap(f); }
+  catch (e) {
+    bmp = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = URL.createObjectURL(f); })
+      .catch(() => null);
+  }
+  if (!bmp) { alert('この画像を読み込めなかった。'); return; }
+  S.kind = 'image'; S.name = f.name;
+  S.W = imgCv.width = bmp.width; S.H = imgCv.height = bmp.height;
+  imgCtx.drawImage(bmp, 0, 0);
+  $('videoBar').classList.add('hidden');
+  afterSource();
+}
+
+async function openVideo(f) {
+  vid.src = URL.createObjectURL(f);
+  try {
+    await new Promise((res, rej) => { vid.onloadeddata = res; vid.onerror = () => rej(vid.error); });
+  } catch (e) {
+    alert('この動画を再生できなかった（形式がこのブラウザに対応していない可能性）。');
+    return;
+  }
+  S.kind = 'video'; S.name = f.name;
+  S.W = imgCv.width = vid.videoWidth; S.H = imgCv.height = vid.videoHeight;
+  $('vSeek').max = vid.duration || 0;
+  $('videoBar').classList.remove('hidden');
+  await seekTo(0);
+  afterSource();
+}
+
+function afterSource() {
+  S.last = null;
+  showStage('canvas');
+  const kindJa = { image: '写真', video: '動画', camera: 'カメラ' }[S.kind];
+  $('srcInfo').textContent = `${kindJa}：${S.name}（${S.W}×${S.H}）`;
+  if (!S.band || S.band.x + S.band.w > S.W || S.band.y + S.band.h > S.H) bandCenter();
+  else setBand(S.band);
+  runAnalysis();
+}
+
+// ---------- 動画のコマ送り ----------
+function waitFrame(v) {
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if (!done) { done = true; res(); } };
+    v.addEventListener('seeked', () => {
+      if ('requestVideoFrameCallback' in v) { v.requestVideoFrameCallback(fin); setTimeout(fin, 300); }
+      else fin();
+    }, { once: true });
+    setTimeout(fin, 3000);
+  });
+}
+async function seekTo(t) {
+  t = Math.max(0, Math.min(vid.duration || 0, t));
+  const p = waitFrame(vid);
+  vid.currentTime = t;
+  await p;
+  imgCtx.drawImage(vid, 0, 0, S.W, S.H);
+  $('vSeek').value = t;
+  $('vTime').textContent = `${t.toFixed(3)} s / ${(vid.duration || 0).toFixed(3)} s`;
+}
+const fps = () => Math.max(1, parseFloat($('vFps').value) || 30);
+$('vSeek').addEventListener('change', async () => { await seekTo(parseFloat($('vSeek').value)); runAnalysis(); });
+$('vPrev').addEventListener('click', async () => { await seekTo(vid.currentTime - 1 / fps()); runAnalysis(); });
+$('vNext').addEventListener('click', async () => { await seekTo(vid.currentTime + 1 / fps()); runAnalysis(); });
+$('vMulti').addEventListener('click', async () => {
+  if (S.kind !== 'video' || S.busy) return;
+  S.busy = true; $('vMulti').disabled = true;
+  const n = Math.max(2, parseInt($('vN').value) || 10), t0 = vid.currentTime, ps = [];
+  for (let i = 0; i < n; i++) {
+    const t = t0 + i / fps();
+    if (t > vid.duration) break;
+    await seekTo(t);
+    const r = runAnalysis({ quiet: i < n - 1 });
+    if (r && Number.isFinite(r.res.period)) ps.push(r.res.period);
+    $('vMultiOut').textContent = `${i + 1}/${n}`;
+  }
+  const st = stats(ps);
+  $('vMultiOut').textContent = ps.length ? `${ps.length}コマ：p = ${st.mean.toFixed(3)} ± ${st.sd.toFixed(3)} 行（変動係数 ${(st.cv * 100).toFixed(2)}%）` : '周期が求まらなかった';
+  if (ps.length && S.last) addRecord(`連続${ps.length}コマの平均（p の標準偏差 ${st.sd.toFixed(3)} 行）`, { period: st.mean, sd: st.sd });
+  S.busy = false; $('vMulti').disabled = false;
+});
+
+function stats(a) {
+  const n = a.length;
+  if (!n) return { mean: NaN, sd: NaN, cv: NaN };
+  const m = a.reduce((s, v) => s + v, 0) / n;
+  const sd = n > 1 ? Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (n - 1)) : 0;
+  return { mean: m, sd, cv: sd / m };
+}
+
+// ---------- 入力：カメラ ----------
+$('camStart').addEventListener('click', () => startCamera());
+$('camApply').addEventListener('click', () => startCamera($('camSel').value || undefined));
+$('camStop').addEventListener('click', stopCamera);
+
+async function startCamera(deviceId) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('このブラウザではカメラを使えない（HTTPS で開いているかを確認）。');
+    return;
+  }
+  stopCamera(true);
+  const [w, h] = $('camRes').value.split('x').map(Number);
+  const video = { width: { ideal: w }, height: { ideal: h }, frameRate: { ideal: Number($('camFps').value) } };
+  if (deviceId) video.deviceId = { exact: deviceId }; else video.facingMode = { ideal: 'environment' };
+  try {
+    S.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+  } catch (e) {
+    alert('カメラを起動できなかった：' + e.name + ' ' + e.message);
+    return;
+  }
+  S.track = S.stream.getVideoTracks()[0];
+  cam.srcObject = S.stream;
+  await cam.play().catch(() => {});
+  await new Promise(r => cam.videoWidth ? r() : cam.addEventListener('loadedmetadata', r, { once: true }));
+  S.kind = 'camera'; S.frozen = false;
+  S.name = S.track.label || 'camera';
+  S.W = imgCv.width = cam.videoWidth; S.H = imgCv.height = cam.videoHeight;
+  $('camBox').classList.remove('hidden');
+  $('camStart').classList.add('hidden'); $('camStop').classList.remove('hidden');
+  $('videoBar').classList.add('hidden');
+  $('camLive').classList.add('hidden');
+  showStage('camera');
+  $('srcInfo').textContent = `カメラ：${S.name}（${S.W}×${S.H}）`;
+  if (!S.band || S.band.x + S.band.w > S.W || S.band.y + S.band.h > S.H) bandCenter(); else setBand(S.band);
+  await fillCameraList();
+  showCaps();
+  if ($('camCont').checked) startLive();
+}
+
+function stopCamera(keepUi) {
+  stopLive();
+  if (S.stream) S.stream.getTracks().forEach(t => t.stop());
+  S.stream = null; S.track = null;
+  cam.srcObject = null;
+  if (!keepUi) {
+    $('camBox').classList.add('hidden');
+    $('camStart').classList.remove('hidden'); $('camStop').classList.add('hidden');
+    if (S.kind === 'camera') {
+      if (S.frozen) { S.kind = 'image'; S.name += '（静止画）'; showStage('canvas'); }
+      else { S.kind = null; S.W = 0; showStage(null); }
+    }
+  }
+}
+
+async function fillCameraList() {
+  const sel = $('camSel');
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    const cur = S.track && S.track.getSettings().deviceId;
+    sel.innerHTML = devs.map((d, i) => `<option value="${d.deviceId}" ${d.deviceId === cur ? 'selected' : ''}>${escapeHtml(d.label || 'カメラ ' + (i + 1))}</option>`).join('');
+  } catch (e) { sel.innerHTML = ''; }
+}
+
+function showCaps() {
+  const t = S.track;
+  const caps = t.getCapabilities ? t.getCapabilities() : null;
+  const set = t.getSettings ? t.getSettings() : {};
+  const info = {
+    userAgent: navigator.userAgent,
+    label: t.label,
+    settings: set,
+    capabilities: caps || '（getCapabilities に対応していない）',
+  };
+  $('capsOut').textContent = JSON.stringify(info, null, 2);
+  const expOk = !!(caps && caps.exposureMode && caps.exposureMode.includes('manual') && caps.exposureTime);
+  const fr = set.frameRate ? `${(+set.frameRate).toFixed(1)} fps` : 'fps 不明';
+  $('camSummary').innerHTML = `実際の設定：${set.width}×${set.height}、${fr}<br>露光時間の手動設定：<b>${expOk ? 'できる' : 'できない'}</b>（このブラウザと端末の組み合わせ）`;
+  $('expBox').classList.toggle('hidden', !expOk);
+  if (expOk) {
+    S.expCaps = caps.exposureTime;
+    const cur = set.exposureTime || caps.exposureTime.max;
+    $('expSlider').value = expToSlider(cur);
+    showExp(cur);
+    if (caps.iso && caps.iso.max > caps.iso.min) {
+      $('isoBox').classList.remove('hidden');
+      Object.assign($('isoSlider'), { min: caps.iso.min, max: caps.iso.max, step: caps.iso.step || 1, value: set.iso || caps.iso.min });
+      $('isoOut').textContent = `ISO ${$('isoSlider').value}`;
+    } else $('isoBox').classList.add('hidden');
+  }
+}
+
+// 露光時間のスライダーは対数目盛り。値の単位は仕様上 100 µs。
+function expToSlider(v) {
+  const { min, max } = S.expCaps, lo = Math.log(Math.max(min, 1e-3)), hi = Math.log(max);
+  return Math.round((Math.log(Math.max(v, 1e-3)) - lo) / (hi - lo) * 1000);
+}
+function sliderToExp(s) {
+  const { min, max, step } = S.expCaps, lo = Math.log(Math.max(min, 1e-3)), hi = Math.log(max);
+  let v = Math.exp(lo + (hi - lo) * s / 1000);
+  if (step) v = Math.max(min, Math.round(v / step) * step);
+  return v;
+}
+function showExp(v) {
+  const sec = v * 1e-4;
+  $('expOut').textContent = `exposureTime = ${(+v).toFixed(2)}（約 1/${Math.round(1 / sec)} 秒、仕様の単位 100 µs として換算）`;
+}
+$('expSlider').addEventListener('input', async () => {
+  const v = sliderToExp(+$('expSlider').value);
+  showExp(v);
+  try { await S.track.applyConstraints({ advanced: [{ exposureMode: 'manual', exposureTime: v }] }); }
+  catch (e) { $('expOut').textContent += '　適用に失敗：' + e.message; }
+});
+$('expAuto').addEventListener('click', async () => {
+  try { await S.track.applyConstraints({ advanced: [{ exposureMode: 'continuous' }] }); } catch (e) {}
+  showCaps();
+});
+$('isoSlider').addEventListener('input', async () => {
+  $('isoOut').textContent = `ISO ${$('isoSlider').value}`;
+  try { await S.track.applyConstraints({ advanced: [{ exposureMode: 'manual', iso: +$('isoSlider').value }] }); } catch (e) {}
+});
+$('capsCopy').addEventListener('click', () => navigator.clipboard && navigator.clipboard.writeText($('capsOut').textContent));
+
+function grabCamera() {
+  if (!S.stream) return false;
+  if (cam.videoWidth !== S.W || cam.videoHeight !== S.H) {
+    S.W = imgCv.width = cam.videoWidth; S.H = imgCv.height = cam.videoHeight;
+    setBand(S.band || { x: 0, y: 0, w: S.W, h: S.H });
+    sizeOverlay();
+  }
+  imgCtx.drawImage(cam, 0, 0, S.W, S.H);
+  return true;
+}
+$('camFreeze').addEventListener('click', () => {
+  if (!grabCamera()) return;
+  S.frozen = true;
+  showStage('canvas');
+  $('camLive').classList.remove('hidden');
+  runAnalysis();
+});
+$('camLive').addEventListener('click', () => {
+  S.frozen = false;
+  showStage('camera');
+  $('camLive').classList.add('hidden');
+});
+$('camCont').addEventListener('change', () => $('camCont').checked ? startLive() : stopLive());
+function startLive() {
+  stopLive();
+  S.liveHist = [];
+  S.liveTimer = setInterval(() => {
+    if (S.kind !== 'camera' || S.frozen || !grabCamera()) return;
+    const r = runAnalysis({ quiet: false });
+    if (r && Number.isFinite(r.res.period)) {
+      S.liveHist.push(r.res.period);
+      if (S.liveHist.length > 20) S.liveHist.shift();
+      const st = stats(S.liveHist);
+      $('liveStats').textContent = `直近${S.liveHist.length}回：p = ${st.mean.toFixed(3)} ± ${st.sd.toFixed(3)} 行（変動係数 ${(st.cv * 100).toFixed(2)}%）`;
+    }
+  }, 500);
+}
+function stopLive() { if (S.liveTimer) clearInterval(S.liveTimer); S.liveTimer = null; }
+
+// ---------- 合成サンプル ----------
+function makeSample(kind) {
+  stopCamera();
+  const W = 1080, H = 1440;
+  S.W = imgCv.width = W; S.H = imgCv.height = H;
+  const id = imgCtx.createImageData(W, H), d = id.data;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  for (let y = 0; y < H; y++) {
+    const c = 470 + 0.03 * y + 9 * Math.sin(2 * Math.PI * y / 81.3);
+    for (let x = 0; x < W; x++) {
+      const vx = (x - W / 2) / W, vy = (y - H / 2) / H, vig = 1 - 0.9 * (vx * vx + vy * vy);
+      let v;
+      if (kind === 'flicker') v = 150 * vig * (1 + 0.18 * Math.cos(2 * Math.PI * y / 23.7));
+      else v = (x > c && x < c + 60) ? 35 : 225 * vig;
+      v += (rnd() - 0.5) * 14;
+      const i = (y * W + x) * 4;
+      d[i] = d[i + 1] = d[i + 2] = Math.max(0, Math.min(255, v)); d[i + 3] = 255;
+    }
+  }
+  imgCtx.putImageData(id, 0, 0);
+  S.kind = 'image';
+  S.name = kind === 'flicker' ? '合成サンプル（点滅、周期 23.7 行）' : '合成サンプル（振動、周期 81.3 行）';
+  setMode(kind === 'flicker' ? 'flicker' : 'vib');
+  if (kind === 'vib') S.band = { x: 380, y: 60, w: 320, h: 1320 }; else S.band = null;
+  $('videoBar').classList.add('hidden');
+  afterSource();
+}
+$('sampFlicker').addEventListener('click', () => makeSample('flicker'));
+$('sampVib').addEventListener('click', () => makeSample('vib'));
+
+// ---------- 設定 ----------
+function setMode(m) {
+  S.mode = m;
+  document.querySelector(`input[name=mode][value=${m}]`).checked = true;
+  $('modeNote').textContent = m === 'flicker'
+    ? '点滅モード：一様な面に写った縞を、帯の中で読み出し方向と直交する向きに平均する。'
+    : '振動モード：逆光のシルエットの輪郭（明暗の境目）の位置を、読み出し方向の1行ごとに求める。帯には輪郭を1本だけ入れる。自動のときは帯の長い向きを読み出し方向とする。';
+  $('waveTitle').textContent = m === 'flicker' ? '波形（読み出し方向に沿った明るさ。トレンド除去後）' : '波形（輪郭の変位 [画素]。トレンド除去後）';
+}
+document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => { setMode(r.value); runAnalysis(); }));
+document.querySelectorAll('input[name=axis]').forEach(r => r.addEventListener('change', () => { S.axisSel = r.value; runAnalysis(); }));
+$('bandFull').addEventListener('click', () => { if (S.W) { bandFull(); runAnalysis(); } });
+$('bandCenter').addEventListener('click', () => { if (S.W) { bandCenter(); runAnalysis(); } });
+['trow', 'fchk'].forEach(id => $(id).addEventListener('input', () => { if (S.last) { renderResults(S.last); drawPlots(S.last); } }));
+
+// ---------- 解析 ----------
+function tRowUs() { const v = parseFloat($('trow').value); return v > 0 ? v : null; }
+
+function runAnalysis(opt = {}) {
+  if (!S.W || !S.band) return null;
+  if (S.kind === 'camera' && !S.frozen && !S.liveTimer) grabCamera();
+  const b = S.band;
+  if (b.w < 4 || b.h < 4) return null;
+  const id = imgCtx.getImageData(b.x, b.y, b.w, b.h);
+  const luma = C.lumaOf(id.data, b.w * b.h);
+  let axis, det = null, edge = null, sig;
+  if (S.mode === 'flicker') {
+    if (S.axisSel === 'auto') { det = C.detectAxis(luma, b.w, b.h); axis = det.axis; }
+    else axis = S.axisSel;
+    sig = C.profile(luma, b.w, b.h, axis);
+  } else {
+    axis = S.axisSel === 'auto' ? (b.h >= b.w ? 'v' : 'h') : S.axisSel;
+    edge = C.edgeTrace(luma, b.w, b.h, axis);
+    sig = edge.trace;
+  }
+  if (sig.length < 16) return null;
+  const res = C.analyzeSignal(sig);
+  const r = {
+    time: new Date(), kind: S.kind, name: S.name, W: S.W, H: S.H, band: { ...b },
+    mode: S.mode, axis, axisAuto: S.axisSel === 'auto', det, edge, raw: sig, res,
+    nTotal: axis === 'v' ? S.H : S.W,
+    videoTime: S.kind === 'video' ? vid.currentTime : null,
+  };
+  S.last = r;
+  drawOverlay();
+  if (!opt.quiet) { renderResults(r); drawPlots(r); }
+  return r;
+}
+
+// 読み出し時間とコマの間隔を比べるための fps（写真では分からない）
+function frameRateOf(r) {
+  if (r.kind === 'video') return fps();
+  if (r.kind === 'camera' && S.track) { const f = +S.track.getSettings().frameRate; return f > 0 ? f : null; }
+  return null;
+}
+const fmt = (v, d = 3) => Number.isFinite(v) ? v.toFixed(d) : '—';
+const axisJa = a => a === 'v' ? '縦（上下）' : '横（左右）';
+
+function renderResults(r) {
+  const res = r.res, t = tRowUs();
+  const rows = [];
+  rows.push(['読み出し方向', axisJa(r.axis) + (r.axisAuto ? (r.det ? `（自動。周期性 縦 ${fmt(r.det.v.strength, 2)}／横 ${fmt(r.det.h.strength, 2)}）` : '（自動。帯の長い向き）') : '（手動）')]);
+  const weak = res.acfStrength < 0.3;
+  rows.push(['1周期の行数 p', `<span class="big">${fmt(res.period, 2)}</span> 行` + (weak ? '（周期性が弱く、信頼できない）' : '')]);
+  rows.push(['　FFT ／ 自己相関', `${fmt(res.pFft, 2)} ／ ${fmt(res.pAcf, 2)} 行（ずれ ${fmt(res.agree * 100, 2)}%）`]);
+  rows.push(['帯に入る周期の数', fmt(res.n / res.period, 1)]);
+  rows.push(['1コマあたりの周期数', `${fmt(r.nTotal / res.period, 1)}（全体 ${r.nTotal} 行 ÷ p）`]);
+  if (r.mode === 'flicker') {
+    rows.push(['縞のコントラスト', `${fmt(res.contrast * 100, 2)}%（振幅 ÷ 平均の明るさ。ガンマ補正は戻していない）`]);
+    rows.push(['明るい部分の割合', `${fmt(res.duty * 100, 1)}%`]);
+  } else {
+    rows.push(['変位の振幅', `${fmt(res.amp, 2)} 画素`]);
+    rows.push(['輪郭が見つからない行', `${r.edge.missing} / ${res.n + 0}`]);
+  }
+  rows.push(['周期性の強さ', `自己相関の山 ${fmt(res.acfStrength, 2)}、スペクトルのピーク比 ${fmt(10 * Math.log10(res.snr), 0)} dB`]);
+  if (t) {
+    const f = 1e6 / (res.period * t);
+    rows.push(['周波数 f', `<span class="big">${fmt(f, 1)}</span> Hz（t<sub>row</sub> = ${fmt(t, 3)} µs）`]);
+    rows.push(['1コマの読み出し時間', `${fmt(r.nTotal * t / 1000, 2)} ms（全体 ${r.nTotal} 行 × t<sub>row</sub>）`]);
+    const fr = frameRateOf(r);
+    if (fr) rows.push(['　コマの間隔との比', `${fmt(r.nTotal * t / 1000 / (1000 / fr) * 100, 0)}%（${fmt(fr, 1)} fps）`]);
+    const fc = parseFloat($('fchk').value);
+    if (fc > 0) rows.push(['確かめの誤差', `${fmt((f - fc) / fc * 100, 2)}%（${fc} Hz に対して）`]);
+  } else {
+    rows.push(['周波数 f', '校正していないので表示しない（RS-F-22）']);
+  }
+  $('results').innerHTML = `<table class="kv">${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>`;
+
+  const w = [];
+  if (r.det && !r.det.sure) w.push('読み出し方向を自動で判定できなかった。縞が写っていないか、帯の中が一様でない可能性。');
+  if (r.mode === 'flicker' && res.contrast < 0.01) w.push('縞のコントラストが 1% 未満。照明が直流点灯か、露光が長い可能性。');
+  if (res.acfStrength < 0.3) w.push('周期性が弱い（自己相関の山が 0.3 未満）。値を信用しないこと。');
+  if (res.n / res.period < 3) w.push('帯に入る周期が 3 個未満。周期の精度が落ちる（下限に近い）。');
+  if (res.period < 4) w.push('1周期が 4 行未満。測定範囲の上限に近い。');
+  if (res.agree > 0.03) w.push('FFT と自己相関の値が 3% 以上ずれている。');
+  if (r.edge && r.edge.missing > 0.1 * res.n) w.push('輪郭が見つからない行が 1 割を超えている。帯に輪郭が 1 本だけ入るように指定し直す。');
+  const fr = frameRateOf(r);
+  if (t && fr && r.nTotal * t / 1000 > 1000 / fr) w.push('1コマの読み出し時間が、コマの間隔より長い。校正値か fps の設定を確かめる。');
+  if (r.edge && r.edge.edgeContrast < 0.2) w.push('帯の中の明暗の差が小さい。逆光を強くする。');
+  $('warnings').innerHTML = w.map(s => `<div class="warn">${s}</div>`).join('');
+}
+
+// ---------- グラフ ----------
+function niceStep(range, count) {
+  const raw = range / Math.max(1, count), mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
+  return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * mag;
+}
+function plot(cv, series, o) {
+  const dpr = window.devicePixelRatio || 1;
+  const Wc = cv.clientWidth, Hc = cv.clientHeight;
+  cv.width = Math.round(Wc * dpr); cv.height = Math.round(Hc * dpr);
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, Wc, Hc);
+  const L = 52, R = 10, T = 8, B = 30, pw = Wc - L - R, ph = Hc - T - B;
+  let xmin = o.xMin, xmax = o.xMax, ymin = Infinity, ymax = -Infinity;
+  for (const s of series) for (let i = 0; i < s.y.length; i++) {
+    const x = s.x(i);
+    if (x < xmin || x > xmax || !Number.isFinite(s.y[i])) continue;
+    if (s.y[i] < ymin) ymin = s.y[i];
+    if (s.y[i] > ymax) ymax = s.y[i];
+  }
+  if (o.yMin !== undefined) ymin = o.yMin;
+  if (o.yMax !== undefined) ymax = o.yMax;
+  if (!(ymax > ymin)) { ymin -= 1; ymax += 1; }
+  const pad = (ymax - ymin) * 0.06; ymin -= pad; ymax += pad;
+  const X = x => L + (x - xmin) / (xmax - xmin) * pw, Y = y => T + (1 - (y - ymin) / (ymax - ymin)) * ph;
+  g.font = '11px system-ui, sans-serif'; g.fillStyle = '#5d6773'; g.strokeStyle = '#e6e9ee'; g.lineWidth = 1;
+  const xs = niceStep(xmax - xmin, Math.max(3, Math.floor(pw / 80)));
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  for (let v = Math.ceil(xmin / xs) * xs; v <= xmax + 1e-9; v += xs) {
+    g.beginPath(); g.moveTo(X(v), T); g.lineTo(X(v), T + ph); g.stroke();
+    g.fillText(+v.toPrecision(6), X(v), T + ph + 3);
+  }
+  const ys = niceStep(ymax - ymin, 4);
+  g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (let v = Math.ceil(ymin / ys) * ys; v <= ymax + 1e-9; v += ys) {
+    g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(L + pw, Y(v)); g.stroke();
+    g.fillText(+v.toPrecision(4), L - 4, Y(v));
+  }
+  g.textAlign = 'center'; g.textBaseline = 'bottom';
+  g.fillText(o.xLabel || '', L + pw / 2, Hc - 1);
+  g.save(); g.beginPath(); g.rect(L, T, pw, ph); g.clip();
+  if (ymin < 0 && ymax > 0) { g.strokeStyle = '#9aa4b0'; g.beginPath(); g.moveTo(L, Y(0)); g.lineTo(L + pw, Y(0)); g.stroke(); }
+  for (const s of series) {
+    g.strokeStyle = s.color; g.lineWidth = s.width || 1.4; g.beginPath();
+    let started = false;
+    for (let i = 0; i < s.y.length; i++) {
+      const x = s.x(i);
+      if (x < xmin || x > xmax || !Number.isFinite(s.y[i])) continue;
+      if (!started) { g.moveTo(X(x), Y(s.y[i])); started = true; } else g.lineTo(X(x), Y(s.y[i]));
+    }
+    g.stroke();
+  }
+  for (const m of o.marks || []) {
+    if (!Number.isFinite(m)) continue;
+    g.strokeStyle = '#d1242f'; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(X(m), T); g.lineTo(X(m), T + ph); g.stroke(); g.setLineDash([]);
+  }
+  g.restore();
+  g.strokeStyle = '#c3cad3'; g.strokeRect(L, T, pw, ph);
+}
+
+function drawPlots(r) {
+  const res = r.res, t = tRowUs();
+  // 時間軸：校正済みなら ms、未校正なら行
+  const k = t ? t / 1000 : 1, unit = t ? '時間 [ms]（読み出し方向）' : '行（読み出し方向）';
+  const m = res.mean;
+  const isVib = r.mode === 'vib';
+  plot($('plotWave'), [
+    { y: r.raw, x: i => i * k, color: '#b4bcc6', width: 1 , shift: m },
+    { y: res.detrended, x: i => (i + res.offset) * k, color: '#1f6feb', width: 1.5 },
+  ].map(s => s.shift !== undefined ? { ...s, y: Float64Array.from(s.y, v => v - s.shift) } : s),
+  { xMin: 0, xMax: (r.raw.length - 1) * k, xLabel: unit + (isVib ? '　縦軸：変位 [画素]' : '　縦軸：明るさ（灰色は除去前）') });
+
+  plot($('plotAcf'), [{ y: res.acf, x: i => i * k, color: '#1f6feb' }],
+    { xMin: 0, xMax: (res.acf.length - 1) * k, yMin: -1, yMax: 1, xLabel: (t ? 'ずれ [ms]' : 'ずれ [行]'), marks: [res.pAcf * k, 2 * res.pAcf * k] });
+
+  const sp = res.spectrum;
+  if (sp) {
+    const kmax = Math.min(sp.mag.length - 1, Math.ceil(sp.kHi));
+    const amp = new Float64Array(kmax + 1);
+    let mx = 0;
+    for (let i = 0; i <= kmax; i++) { amp[i] = Math.sqrt(sp.mag[i]); if (i >= sp.kLo && amp[i] > mx) mx = amp[i]; }
+    for (let i = 0; i <= kmax; i++) amp[i] /= (mx || 1);
+    // 横軸：校正済みなら Hz、未校正なら1コマあたりの周期数
+    const toX = t ? (i => i / sp.M / (t * 1e-6)) : (i => i / sp.M * r.nTotal);
+    const xmaxShow = toX(Math.min(kmax, Math.max(sp.M / res.period * 4, sp.kLo * 4)));
+    $('specTitle').textContent = t ? 'スペクトル（横軸：周波数 [Hz]）' : 'スペクトル（横軸：1コマあたりの周期数）';
+    plot($('plotSpec'), [{ y: amp, x: toX, color: '#1f6feb' }],
+      { xMin: 0, xMax: xmaxShow, yMin: 0, yMax: 1, xLabel: t ? '周波数 [Hz]' : '1コマあたりの周期数', marks: [toX(sp.M / res.pFft)] });
+  }
+}
+
+// ---------- 校正 ----------
+const CAL_KEY = 'rs-check-calib-v1', REC_KEY = 'rs-check-records-v1';
+function loadCal() { try { return JSON.parse(localStorage.getItem(CAL_KEY)) || []; } catch (e) { return []; } }
+function saveCal(a) { try { localStorage.setItem(CAL_KEY, JSON.stringify(a)); } catch (e) {} }
+function renderCal() {
+  const a = loadCal();
+  $('calibList').innerHTML = a.length
+    ? a.map((c, i) => `<option value="${i}">${escapeHtml(c.label)}：${c.tRowUs.toFixed(3)} µs/行</option>`).join('')
+    : '<option value="">（保存した校正値はない）</option>';
+}
+$('calibDo').addEventListener('click', () => {
+  const f = parseFloat($('fref').value);
+  if (!(f > 0) || !S.last || !Number.isFinite(S.last.res.period)) { alert('基準の周波数を入れ、基準を撮った画像を解析してから押す。'); return; }
+  $('trow').value = (1e6 / (f * S.last.res.period)).toFixed(4);
+  if (!$('calibLabel').value) $('calibLabel').value = `${S.name.slice(0, 24)} ${S.W}×${S.H} ${S.kind === 'image' ? '写真' : S.kind === 'video' ? '動画' : 'ライブ'}`;
+  renderResults(S.last); drawPlots(S.last);
+});
+$('calibSave').addEventListener('click', () => {
+  const t = tRowUs();
+  if (!t) { alert('t_row が未設定。'); return; }
+  const a = loadCal();
+  a.push({ label: $('calibLabel').value || `校正 ${new Date().toLocaleString()}`, tRowUs: t, fRef: parseFloat($('fref').value) || null, p: S.last ? S.last.res.period : null, W: S.W, H: S.H, axis: S.last ? S.last.axis : null, date: new Date().toISOString() });
+  saveCal(a); renderCal();
+  $('calibList').value = a.length - 1;
+});
+$('calibLoad').addEventListener('click', () => {
+  const c = loadCal()[+$('calibList').value];
+  if (!c) return;
+  $('trow').value = c.tRowUs; $('calibLabel').value = c.label;
+  if (S.last) { renderResults(S.last); drawPlots(S.last); }
+});
+$('calibDel').addEventListener('click', () => {
+  const a = loadCal(), i = +$('calibList').value;
+  if (!a[i] || !confirm(`「${a[i].label}」を削除する？`)) return;
+  a.splice(i, 1); saveCal(a); renderCal();
+});
+
+// ---------- 記録 ----------
+const REC_COLS = [
+  ['date', '日時'], ['kind', '素材'], ['name', '名前'], ['size', '解像度'], ['vt', '動画の時刻[s]'], ['mode', 'モード'], ['axis', '方向'], ['band', '帯 x,y,w,h'],
+  ['p', 'p[行]'], ['psd', 'pの標準偏差'], ['pFft', 'p_FFT'], ['pAcf', 'p_ACF'], ['cyc', '周期/コマ'], ['contrast', 'コントラスト[%]'], ['duty', '明部の割合[%]'],
+  ['amp', '振幅[画素]'], ['acf', '自己相関の山'], ['trow', 't_row[µs]'], ['f', 'f[Hz]'], ['memo', 'メモ'],
+];
+function loadRec() { try { return JSON.parse(localStorage.getItem(REC_KEY)) || []; } catch (e) { return []; } }
+function saveRec() { try { localStorage.setItem(REC_KEY, JSON.stringify(S.records)); } catch (e) {} }
+function addRecord(memo, over = {}) {
+  const r = S.last;
+  if (!r) return;
+  const res = r.res, t = tRowUs(), p = over.period ?? res.period;
+  S.records.push({
+    date: new Date().toLocaleString(), kind: { image: '写真', video: '動画', camera: 'ライブ' }[r.kind] || r.kind, name: r.name,
+    size: `${r.W}x${r.H}`, vt: r.videoTime != null ? r.videoTime.toFixed(3) : '', mode: r.mode === 'flicker' ? '点滅' : '振動',
+    axis: r.axis === 'v' ? '縦' : '横', band: `${r.band.x},${r.band.y},${r.band.w},${r.band.h}`,
+    p: fmt(p, 3), psd: over.sd != null ? fmt(over.sd, 3) : '', pFft: fmt(res.pFft, 3), pAcf: fmt(res.pAcf, 3), cyc: fmt(r.nTotal / p, 2),
+    contrast: r.mode === 'flicker' ? fmt(res.contrast * 100, 2) : '', duty: r.mode === 'flicker' ? fmt(res.duty * 100, 1) : '',
+    amp: r.mode === 'vib' ? fmt(res.amp, 2) : '', acf: fmt(res.acfStrength, 3), trow: t ? fmt(t, 4) : '', f: t ? fmt(1e6 / (p * t), 2) : '',
+    memo: memo || '',
+  });
+  saveRec(); renderRec();
+}
+function renderRec() {
+  const rows = S.records;
+  $('recTable').innerHTML = `<tr>${REC_COLS.map(c => `<th>${c[1]}</th>`).join('')}</tr>` +
+    rows.slice().reverse().map(r => `<tr>${REC_COLS.map(c => `<td>${escapeHtml(String(r[c[0]] ?? ''))}</td>`).join('')}</tr>`).join('');
+}
+$('recAdd').addEventListener('click', () => { if (!S.last) { alert('先に解析する。'); return; } addRecord($('memo').value); });
+$('recClear').addEventListener('click', () => { if (S.records.length && confirm('記録をすべて消す？')) { S.records = []; saveRec(); renderRec(); } });
+$('recCsv').addEventListener('click', () => {
+  const lines = [REC_COLS.map(c => c[1]), ...S.records.map(r => REC_COLS.map(c => r[c[0]] ?? ''))];
+  download('rs-check-records.csv', toCsv(lines));
+});
+$('waveCsv').addEventListener('click', () => {
+  const r = S.last;
+  if (!r) return;
+  const t = tRowUs(), res = r.res;
+  const head = ['行', t ? '時間[ms]' : '', r.mode === 'flicker' ? '明るさ' : '輪郭の位置[画素]', 'トレンド除去後'].filter(Boolean);
+  const lines = [head];
+  for (let i = 0; i < r.raw.length; i++) {
+    const j = i - res.offset;
+    const row = [i + (r.axis === 'v' ? r.band.y : r.band.x)];
+    if (t) row.push((i * t / 1000).toFixed(5));
+    row.push(r.raw[i].toFixed(4), j >= 0 && j < res.detrended.length ? res.detrended[j].toFixed(4) : '');
+    lines.push(row);
+  }
+  download('rs-check-wave.csv', toCsv(lines));
+});
+function toCsv(lines) {
+  return '﻿' + lines.map(l => l.map(v => { const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\r\n');
+}
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+// ---------- 起動 ----------
+S.records = loadRec();
+renderRec();
+renderCal();
+setMode('flicker');
+</script>
+</body>
+</html>
