@@ -5,7 +5,7 @@
 
 ## 状態
 
-構想段階。仕様書を作成した段階で、実機検証と実装はまだ行っていない。
+構想段階。仕様書（0.1）と、実機検証のための検証ツール（`tools/rs-check/`）がある。実機検証とアプリ本体の実装はまだ行っていない。
 
 ## 仕様書
 
@@ -23,6 +23,10 @@
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | 改訂履歴 |
 | [docs/reference/prior-work.md](docs/reference/prior-work.md) | 参考：先行事例 |
 | [docs/common/](docs/common/) | 姉妹アプリと共通の開発方針・端末の制約・改訂ルール |
+
+## 検証ツール
+
+[tools/rs-check/](tools/rs-check/README.md)：撮った写真・動画（またはライブカメラ）から縞や波打ちの周期を行数で求め、読み出し方向の判定、校正、記録までできる。実機検証（RS-Q-01 ほか）に使う。授業用の画面ではない。
 
 ## 姉妹アプリ
 
