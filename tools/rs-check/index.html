@@ -322,7 +322,7 @@ function setBand(b) {
   $('bandInfo').textContent = `帯：x ${S.band.x}, y ${S.band.y}, 幅 ${S.band.w}, 高さ ${S.band.h}（画素）`;
   drawOverlay();
 }
-function bandCenter() { setBand({ x: S.W * 0.3, y: S.H * 0.1, w: S.W * 0.4, h: S.H * 0.8 }); }
+function bandCenter() { setBand({ x: S.W * 0.1, y: S.H * 0.1, w: S.W * 0.8, h: S.H * 0.8 }); }
 function bandFull() { setBand({ x: 0, y: 0, w: S.W, h: S.H }); }
 
 // ---------- 帯の指定（ドラッグ） ----------
@@ -431,16 +431,17 @@ $('vMulti').addEventListener('click', async () => {
   if (S.kind !== 'video' || S.busy) return;
   S.busy = true; $('vMulti').disabled = true;
   const n = Math.max(2, parseInt($('vN').value) || 10), t0 = vid.currentTime, ps = [];
+  let skipped = 0;
   for (let i = 0; i < n; i++) {
     const t = t0 + i / fps();
     if (t > vid.duration) break;
     await seekTo(t);
     const r = runAnalysis({ quiet: i < n - 1 });
-    if (r && Number.isFinite(r.res.period)) ps.push(r.res.period);
+    if (r && reliable(r.res)) ps.push(r.res.period); else skipped++;
     $('vMultiOut').textContent = `${i + 1}/${n}`;
   }
   const st = stats(ps);
-  $('vMultiOut').textContent = ps.length ? `${ps.length}コマ：p = ${st.mean.toFixed(3)} ± ${st.sd.toFixed(3)} 行（変動係数 ${(st.cv * 100).toFixed(2)}%）` : '周期が求まらなかった';
+  $('vMultiOut').textContent = ps.length ? `${ps.length}コマ：p = ${st.mean.toFixed(3)} ± ${st.sd.toFixed(3)} 行（変動係数 ${(st.cv * 100).toFixed(2)}%）` + (skipped ? `。周期が定まらず除いたコマ ${skipped}` : '') : '周期が定まるコマがなかった';
   if (ps.length && S.last) addRecord(`連続${ps.length}コマの平均（p の標準偏差 ${st.sd.toFixed(3)} 行）`, { period: st.mean, sd: st.sd });
   S.busy = false; $('vMulti').disabled = false;
 });
@@ -604,7 +605,7 @@ function startLive() {
   S.liveTimer = setInterval(() => {
     if (S.kind !== 'camera' || S.frozen || !grabCamera()) return;
     const r = runAnalysis({ quiet: false });
-    if (r && Number.isFinite(r.res.period)) {
+    if (r && reliable(r.res)) {
       S.liveHist.push(r.res.period);
       if (S.liveHist.length > 20) S.liveHist.shift();
       const st = stats(S.liveHist);
@@ -661,6 +662,8 @@ $('bandCenter').addEventListener('click', () => { if (S.W) { bandCenter(); runAn
 ['trow', 'fchk'].forEach(id => $(id).addEventListener('input', () => { if (S.last) { renderResults(S.last); drawPlots(S.last); } }));
 
 // ---------- 解析 ----------
+// 周期を値として採用してよいか：自己相関の山が 0.3 以上で、FFT と自己相関が 10% 以内で一致
+function reliable(res) { return Number.isFinite(res.period) && res.acfStrength >= 0.3 && res.agree <= 0.1; }
 function tRowUs() { const v = parseFloat($('trow').value); return v > 0 ? v : null; }
 
 function runAnalysis(opt = {}) {
@@ -707,8 +710,8 @@ function renderResults(r) {
   const res = r.res, t = tRowUs();
   const rows = [];
   rows.push(['読み出し方向', axisJa(r.axis) + (r.axisAuto ? (r.det ? `（自動。周期性 縦 ${fmt(r.det.v.strength, 2)}／横 ${fmt(r.det.h.strength, 2)}）` : '（自動。帯の長い向き）') : '（手動）')]);
-  const weak = res.acfStrength < 0.3;
-  rows.push(['1周期の行数 p', `<span class="big">${fmt(res.period, 2)}</span> 行` + (weak ? '（周期性が弱く、信頼できない）' : '')]);
+  const ok = reliable(res);
+  rows.push(['1周期の行数 p', ok ? `<span class="big">${fmt(res.period, 2)}</span> 行` : '<span class="big">—</span>（決められない。下の2つの値とグラフを見る）']);
   rows.push(['　FFT ／ 自己相関', `${fmt(res.pFft, 2)} ／ ${fmt(res.pAcf, 2)} 行（ずれ ${fmt(res.agree * 100, 2)}%）`]);
   rows.push(['帯に入る周期の数', fmt(res.n / res.period, 1)]);
   rows.push(['1コマあたりの周期数', `${fmt(r.nTotal / res.period, 1)}（全体 ${r.nTotal} 行 ÷ p）`]);
@@ -720,7 +723,7 @@ function renderResults(r) {
     rows.push(['輪郭が見つからない行', `${r.edge.missing} / ${res.n + 0}`]);
   }
   rows.push(['周期性の強さ', `自己相関の山 ${fmt(res.acfStrength, 2)}、スペクトルのピーク比 ${fmt(10 * Math.log10(res.snr), 0)} dB`]);
-  if (t) {
+  if (t && ok) {
     const f = 1e6 / (res.period * t);
     rows.push(['周波数 f', `<span class="big">${fmt(f, 1)}</span> Hz（t<sub>row</sub> = ${fmt(t, 3)} µs）`]);
     rows.push(['1コマの読み出し時間', `${fmt(r.nTotal * t / 1000, 2)} ms（全体 ${r.nTotal} 行 × t<sub>row</sub>）`]);
@@ -728,6 +731,8 @@ function renderResults(r) {
     if (fr) rows.push(['　コマの間隔との比', `${fmt(r.nTotal * t / 1000 / (1000 / fr) * 100, 0)}%（${fmt(fr, 1)} fps）`]);
     const fc = parseFloat($('fchk').value);
     if (fc > 0) rows.push(['確かめの誤差', `${fmt((f - fc) / fc * 100, 2)}%（${fc} Hz に対して）`]);
+  } else if (!ok) {
+    rows.push(['周波数 f', '周期が決められないので表示しない']);
   } else {
     rows.push(['周波数 f', '校正していないので表示しない（RS-F-22）']);
   }
@@ -739,7 +744,10 @@ function renderResults(r) {
   if (res.acfStrength < 0.3) w.push('周期性が弱い（自己相関の山が 0.3 未満）。値を信用しないこと。');
   if (res.n / res.period < 3) w.push('帯に入る周期が 3 個未満。周期の精度が落ちる（下限に近い）。');
   if (res.period < 4) w.push('1周期が 4 行未満。測定範囲の上限に近い。');
-  if (res.agree > 0.03) w.push('FFT と自己相関の値が 3% 以上ずれている。');
+  if (res.agree > 0.1) w.push('FFT と自己相関の値が 10% 以上ずれている。周期の違う成分が混ざっているか、帯の中の明るさむらを拾っている可能性。');
+  else if (res.agree > 0.03) w.push('FFT と自己相関の値が 3% 以上ずれている。');
+  if (r.mode === 'flicker' && res.contrast > 0.1) w.push('帯の中の明暗の差が大きい。物体の輪郭が入っている可能性がある。音叉や弦を測るときは「振動」モードにする。');
+  if (r.mode === 'flicker' && res.n < 0.6 * r.nTotal) w.push('帯が読み出し方向の一部しか覆っていない。照明の縞のように周期が長いものは、帯を読み出し方向いっぱいに伸ばす。');
   if (r.edge && r.edge.missing > 0.1 * res.n) w.push('輪郭が見つからない行が 1 割を超えている。帯に輪郭が 1 本だけ入るように指定し直す。');
   const fr = frameRateOf(r);
   if (t && fr && r.nTotal * t / 1000 > 1000 / fr) w.push('1コマの読み出し時間が、コマの間隔より長い。校正値か fps の設定を確かめる。');
@@ -886,7 +894,7 @@ function saveRec() { try { localStorage.setItem(REC_KEY, JSON.stringify(S.record
 function addRecord(memo, over = {}) {
   const r = S.last;
   if (!r) return;
-  const res = r.res, t = tRowUs(), p = over.period ?? res.period;
+  const res = r.res, t = tRowUs(), p = over.period ?? (reliable(res) ? res.period : NaN);
   S.records.push({
     date: new Date().toLocaleString(), kind: { image: '写真', video: '動画', camera: 'ライブ' }[r.kind] || r.kind, name: r.name,
     size: `${r.W}x${r.H}`, vt: r.videoTime != null ? r.videoTime.toFixed(3) : '', mode: r.mode === 'flicker' ? '点滅' : '振動',
