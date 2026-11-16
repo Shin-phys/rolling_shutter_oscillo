@@ -20,6 +20,7 @@
 | [docs/04-shooting-guide.md](docs/04-shooting-guide.md) | 撮影条件と題材ごとの撮り方 |
 | [docs/05-lesson-design.md](docs/05-lesson-design.md) | 授業での使い方 |
 | [docs/06-open-issues.md](docs/06-open-issues.md) | 未決事項・要検証 |
+| [docs/07-verification-log.md](docs/07-verification-log.md) | 実機検証の記録 |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | 改訂履歴 |
 | [docs/reference/prior-work.md](docs/reference/prior-work.md) | 参考：先行事例 |
 | [docs/common/](docs/common/) | 姉妹アプリと共通の開発方針・端末の制約・改訂ルール |

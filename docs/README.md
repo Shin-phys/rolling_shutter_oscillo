@@ -39,6 +39,7 @@
 | [04-shooting-guide.md](04-shooting-guide.md) | 撮影条件と題材ごとの撮り方 |
 | [05-lesson-design.md](05-lesson-design.md) | 授業での使い方 |
 | [06-open-issues.md](06-open-issues.md) | 未決事項・要検証 |
+| [07-verification-log.md](07-verification-log.md) | 実機検証の記録 |
 | [CHANGELOG.md](CHANGELOG.md) | 改訂履歴 |
 | [common/](common/) | 姉妹アプリと共通の文書（原本は仕様書群の `common/`） |
 | [reference/prior-work.md](reference/prior-work.md) | 参考：先行事例 |
